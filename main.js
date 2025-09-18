@@ -1,13 +1,3 @@
-// main.js
-// Responsibilities:
-// - Render project cards
-// - Project modal (open/close, ESC)
-// - Project search & filter
-// - Skill bar animations on scroll
-// - Back to top button
-// - Contact form validation and local "message sent" flow
-// - Smooth UI behaviors: year, menu toggle, menu keyboard
-
 document.addEventListener('DOMContentLoaded', () => {
   // Data: projects (as requested)
   const projects = [
@@ -29,7 +19,6 @@ document.addEventListener('DOMContentLoaded', () => {
       live: '#',
       image: 'images/ems.jpeg'
     }
-
   ];
 
   // Render projects
@@ -131,8 +120,8 @@ document.addEventListener('DOMContentLoaded', () => {
     renderProjects(filtered);
   }
 
-  searchInput.addEventListener('input', debounce(filterProjects, 220));
-  techFilter.addEventListener('change', filterProjects);
+  searchInput && searchInput.addEventListener('input', debounce(filterProjects, 220));
+  techFilter && techFilter.addEventListener('change', filterProjects);
 
   // Debounce helper
   function debounce(fn, wait){
@@ -181,59 +170,108 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Contact form validation and local "message sent"
+  // Contact form validation + send to Formspree + localStorage save
   const contactForm = document.getElementById('contact-form');
   const feedback = document.getElementById('form-feedback');
 
-  contactForm.addEventListener('submit', (e) => {
-    e.preventDefault();
-    feedback.textContent = '';
-    const name = contactForm.name.value.trim();
-    const email = contactForm.email.value.trim();
-    const subject = contactForm.subject.value.trim();
-    const message = contactForm.message.value.trim();
+  if(contactForm){
+    contactForm.addEventListener('submit', async (e) => {
+      e.preventDefault(); // we'll handle submit (validation + AJAX send)
 
-    // basic client-side validation
-    const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if(name.length < 2){
-      feedback.textContent = 'Please enter your name (2+ characters).';
-      feedback.style.color = 'var(--accent3)';
-      contactForm.name.focus();
-      return;
-    }
-    if(!emailRe.test(email)){
-      feedback.textContent = 'Please enter a valid email address.';
-      feedback.style.color = 'var(--accent3)';
-      contactForm.email.focus();
-      return;
-    }
-    if(subject.length < 3){
-      feedback.textContent = 'Please add a subject.';
-      feedback.style.color = 'var(--accent3)';
-      contactForm.subject.focus();
-      return;
-    }
-    if(message.length < 6){
-      feedback.textContent = 'Message should be at least 6 characters.';
-      feedback.style.color = 'var(--accent3)';
-      contactForm.message.focus();
-      return;
-    }
+      feedback.textContent = '';
+      feedback.style.color = ''; // reset
 
-    // simulate local "send" & store to localStorage messages
-    let messages = [];
-    try {
-      messages = JSON.parse(localStorage.getItem('localMessages') || '[]');
-    } catch(e) { messages = []; }
-    messages.push({
-      name, email, subject, message, time: new Date().toISOString()
+      const name = contactForm.name.value.trim();
+      const email = contactForm.email.value.trim();
+      const subject = contactForm.subject.value.trim();
+      const message = contactForm.message.value.trim();
+
+      // basic client-side validation
+      const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if(name.length < 2){
+        feedback.textContent = 'Please enter your name (2+ characters).';
+        feedback.style.color = 'var(--accent3, #f39c12)';
+        contactForm.name.focus();
+        return;
+      }
+      if(!emailRe.test(email)){
+        feedback.textContent = 'Please enter a valid email address.';
+        feedback.style.color = 'var(--accent3, #f39c12)';
+        contactForm.email.focus();
+        return;
+      }
+      if(subject.length < 3){
+        feedback.textContent = 'Please add a subject.';
+        feedback.style.color = 'var(--accent3, #f39c12)';
+        contactForm.subject.focus();
+        return;
+      }
+      if(message.length < 6){
+        feedback.textContent = 'Message should be at least 6 characters.';
+        feedback.style.color = 'var(--accent3, #f39c12)';
+        contactForm.message.focus();
+        return;
+      }
+
+      // store locally first
+      let messages = [];
+      try {
+        messages = JSON.parse(localStorage.getItem('localMessages') || '[]');
+      } catch(err) { messages = []; }
+      messages.push({
+        name, email, subject, message, time: new Date().toISOString()
+      });
+      try {
+        localStorage.setItem('localMessages', JSON.stringify(messages));
+      } catch(err) {
+        // localStorage may fail if storage full or access denied — ignore but proceed
+        console.warn('Could not save message locally', err);
+      }
+
+      // Attempt to send to Formspree (AJAX) using the form action
+      const action = (contactForm.getAttribute('action') || '').trim();
+      if(action){
+        try {
+          // capture FormData before resetting
+          const formData = new FormData(contactForm);
+
+          const resp = await fetch(action, {
+            method: 'POST',
+            body: formData,
+            headers: {
+              'Accept': 'application/json'
+            }
+          });
+
+          if(resp.ok){
+            feedback.textContent = 'Message sent — saved locally and submitted. Thank you!';
+            feedback.style.color = 'var(--accent2, #ff4ecd)';
+            contactForm.reset();
+          } else {
+            // attempt to parse JSON error returned by Formspree
+            let errText = 'Unable to submit form to Formspree.';
+            try {
+              const data = await resp.json();
+              if(data && data.errors){
+                errText = data.errors.map(x => x.message).join(', ');
+              }
+            } catch(parseErr){}
+            feedback.textContent = 'Saved locally, but not submitted: ' + errText;
+            feedback.style.color = 'orange';
+          }
+        } catch(networkErr){
+          console.error('Network error sending to Formspree:', networkErr);
+          feedback.textContent = 'Saved locally, but network error prevented sending. Please try again later.';
+          feedback.style.color = 'orange';
+        }
+      } else {
+        // no action attribute set — only save locally
+        feedback.textContent = 'Message saved locally (no remote endpoint configured).';
+        feedback.style.color = 'var(--accent2, #ff4ecd)';
+        contactForm.reset();
+      }
     });
-    localStorage.setItem('localMessages', JSON.stringify(messages));
-
-    feedback.textContent = 'Message sent — saved locally. Thank you!';
-    feedback.style.color = 'var(--accent2)';
-    contactForm.reset();
-  });
+  }
 
   // Accessibility: close mobile menu when focusing outside
   document.addEventListener('click', (e) => {
